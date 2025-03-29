@@ -27,6 +27,7 @@ import 'package:webview_windows/webview_windows.dart';
 import 'package:translator/translator.dart';
 import 'style_screen.dart';
 
+
 class LocalizationProvider with ChangeNotifier {
   Map<String, String> _localizedStrings = {};
   String _currentLanguage = 'ru';
@@ -283,20 +284,36 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _getLocalIpAddress() async {
-    try {
-      final info = NetworkInfo();
-      final ipAddress = await info.getWifiIP();
+  try {
+    final response = await http.get(Uri.parse('https://ifconfig.co/ip'));
+    if (response.statusCode == 200) {
+      final externalIp = response.body.trim();
       setState(() {
-        _localIpAddress = ipAddress ?? 'localhost';
-        LogManager.log(Level.INFO, 'WebSocket Local IP: $_localIpAddress');
+        _localIpAddress = externalIp;
+        LogManager.log(Level.INFO, 'External IP (for WebSocket): $_localIpAddress');
       });
-    } catch (e) {
-      setState(() {
-        _localIpAddress = 'localhost';
-        LogManager.log(Level.INFO, 'WebSocket Local IP: $_localIpAddress');
-      });
+      return;
+    } else {
+      LogManager.log(Level.WARNING, 'Failed to fetch external IP, falling back to local');
     }
+  } catch (e) {
+    LogManager.log(Level.WARNING, 'Error fetching external IP: $e');
   }
+
+  try {
+    final info = NetworkInfo();
+    final ipAddress = await info.getWifiIP();
+    setState(() {
+      _localIpAddress = ipAddress ?? 'localhost';
+      LogManager.log(Level.INFO, 'Fallback Local IP: $_localIpAddress');
+    });
+  } catch (e) {
+    setState(() {
+      _localIpAddress = 'localhost';
+      LogManager.log(Level.INFO, 'Defaulting Local IP to localhost');
+    });
+  }
+}
 
   void _showQRCodeDialog() {
     if (_localIpAddress.isEmpty) {
@@ -507,7 +524,8 @@ class _MainScreenState extends State<MainScreen> {
     LogManager.log(Level.INFO, 'Загрузка настроек');
     SharedPreferences prefs = await SharedPreferences.getInstance();
     setState(() {
-      _httpPort = prefs.getInt('httpPort') ?? 8080;
+      _localIpAddress = prefs.getString('local_ip') ?? _localIpAddress;
+	  _httpPort = prefs.getInt('httpPort') ?? 8080;
       _wsPort = prefs.getInt('wsPort') ?? 4040;
       _timerDuration = prefs.getInt('timer_duration') ?? 0;
       _minutesPer100Rubles = prefs.getDouble('minutes_per_100_rubles') ?? 10.0;
@@ -566,89 +584,108 @@ class _MainScreenState extends State<MainScreen> {
     _startWebServer();
   }
 
-  void _showPortSettingsDialog() {
-    TextEditingController httpPortController =
-        TextEditingController(text: _httpPort.toString());
-    TextEditingController wsPortController =
-        TextEditingController(text: _wsPort.toString());
-    String? errorMessage;
+ void _showPortSettingsDialog() {
+  TextEditingController httpPortController =
+      TextEditingController(text: _httpPort.toString());
+  TextEditingController wsPortController =
+      TextEditingController(text: _wsPort.toString());
+  TextEditingController ipController =
+      TextEditingController(text: _localIpAddress);
+  String? errorMessage;
 
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setState) {
-            return AlertDialog(
-              title: Text(context
-                  .read<LocalizationProvider>()
-                  .translate('port_settings')),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: httpPortController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText:
-                          'HTTP ${context.read<LocalizationProvider>().translate('port')}',
-                      errorText: errorMessage,
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return StatefulBuilder(
+        builder: (BuildContext context, StateSetter setState) {
+          return AlertDialog(
+            title: Text(context
+                .read<LocalizationProvider>()
+                .translate('port_settings')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: ipController,
+                  decoration: InputDecoration(
+                    labelText: 'IP (локальный или внешний)',
+                    hintText: 'например: 192.168.0.100 или 1.2.3.4',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: httpPortController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText:
+                        'HTTP ${context.read<LocalizationProvider>().translate('port')}',
+                    errorText: errorMessage,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: wsPortController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText:
+                        'WebSocket ${context.read<LocalizationProvider>().translate('port')}',
+                    errorText: errorMessage,
+                  ),
+                ),
+                if (errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Text(
+                      errorMessage!,
+                      style: const TextStyle(color: Colors.red),
                     ),
                   ),
-                  TextField(
-                    controller: wsPortController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText:
-                          'WebSocket ${context.read<LocalizationProvider>().translate('port')}',
-                      errorText: errorMessage,
-                    ),
-                  ),
-                  if (errorMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: Text(errorMessage!,
-                          style: GoogleFonts.lato(
-                            textStyle: const TextStyle(color: Colors.red),
-                          )),
-                    ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  child: Text(
-                      context.read<LocalizationProvider>().translate('cancel')),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    int? httpPort = int.tryParse(httpPortController.text);
-                    int? wsPort = int.tryParse(wsPortController.text);
-                    if (httpPort != null &&
-                        wsPort != null &&
-                        httpPort > 0 &&
-                        wsPort > 0) {
-                      _updatePorts(httpPort, wsPort);
-                      Navigator.of(context).pop();
-                    } else {
-                      setState(() {
-                        errorMessage = context
-                            .read<LocalizationProvider>()
-                            .translate('err_port');
-                      });
-                    }
-                  },
-                  child: Text(
-                      context.read<LocalizationProvider>().translate('save')),
-                ),
               ],
-            );
-          },
-        );
-      },
-    );
-  }
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: Text(context
+                    .read<LocalizationProvider>()
+                    .translate('cancel')),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  int? httpPort = int.tryParse(httpPortController.text);
+                  int? wsPort = int.tryParse(wsPortController.text);
+                  String ip = ipController.text.trim();
+
+                  if (httpPort != null &&
+                      wsPort != null &&
+                      httpPort > 0 &&
+                      wsPort > 0 &&
+                      ip.isNotEmpty) {
+                    setState(() {
+                      _localIpAddress = ip;
+                    });
+                    _updatePorts(httpPort, wsPort);
+                    _saveSettings(); // Сохраняем IP тоже
+                    Navigator.of(context).pop();
+                  } else {
+                    setState(() {
+                      errorMessage = context
+                          .read<LocalizationProvider>()
+                          .translate('err_port');
+                    });
+                  }
+                },
+                child: Text(
+                    context.read<LocalizationProvider>().translate('save')),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
 
   void _handleDonation(dynamic data) {
     LogManager.log(Level.INFO, 'Получено пожертвование: $data');
@@ -731,7 +768,8 @@ class _MainScreenState extends State<MainScreen> {
     await prefs.setInt('timer_duration', _timerDuration);
     await prefs.setDouble('minutes_per_100_rubles', _minutesPer100Rubles);
     await prefs.setBool('isSoundEnabled', _isSoundEnabled);
-    await prefs.setBool('isRandomSoundEnabled', _isRandomSoundEnabled);
+    await prefs.setString('local_ip', _localIpAddress);
+	await prefs.setBool('isRandomSoundEnabled', _isRandomSoundEnabled);
   }
 
   void _loadSoundFiles() {
@@ -1260,7 +1298,7 @@ class _MainScreenState extends State<MainScreen> {
 <body>
     <div id="timer">00:00:00</div>
     <script>
-      const socket = new WebSocket('ws://$_localIpAddress:$_wsPort'); 
+      const socket = new WebSocket(`ws://${request.requestedUri.host}:${_wsPort}`);
       socket.onmessage = function(event) {
         const data = JSON.parse(event.data);
         if (data.action === 'update_timer') {
