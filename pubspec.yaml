@@ -1,0 +1,47 @@
+name: DonathonTimer
+description: "Donathon Timer - A powerful and customizable timer application designed for live streaming and event management."
+publish_to: 'none'
+version: 2.0.3+1
+
+environment:
+  sdk: '>=3.4.3 <4.0.0'
+
+dependencies:
+  flutter_localizations:
+    sdk: flutter
+  flutter:
+    sdk: flutter
+  intl: ^0.19.0
+  provider: ^6.1.2
+  http: ^1.2.2
+  logging: ^1.2.0
+  shared_preferences: ^2.3.1
+  socket_io_client: ^1.0.2
+  web_socket_channel: ^3.0.1
+  cupertino_icons: ^1.0.5
+  shelf: ^1.4.0
+  flutter_colorpicker: ^1.0.3
+  window_manager: ^0.3.4
+  path_provider: ^2.0.11
+  url_launcher: ^6.1.7
+  qr_flutter: ^4.0.0
+  network_info_plus: ^5.0.0
+  audioplayers: ^5.1.0
+  google_fonts: ^5.0.0
+  desktop_webview_window: ^0.2.0
+  webview_windows: ^0.3.0
+  translator: ^1.0.3+1
+  html: ^0.15.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/styles.json
+    - assets/pepe.gif
+    - assets/pepe.mp3
+    - lang/
