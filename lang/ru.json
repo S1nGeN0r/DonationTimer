@@ -81,5 +81,8 @@
     "sound_notification": "Звуковое оповещение",
     "random_sound": "Рандомный звук",
     "refresh_sounds": "Обновить звуки",
-    "trula_token": "Trula токен"
+    "trula_token": "Trula токен",
+    "donatepay_token": "Токен DonatePay",
+    "donatepay_user_id": "ID пользователя DonatePay"
 }
+

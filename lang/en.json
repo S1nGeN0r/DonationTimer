@@ -81,5 +81,7 @@
     "sound_notification": "Sound notification",
     "random_sound": "Random sound",
     "refresh_sounds": "Refresh sounds",
-    "trula_token": "Trula token"
+    "trula_token": "Trula token",
+    "donatepay_token": "DonatePay Token",
+    "donatepay_user_id": "DonatePay User ID"
 }

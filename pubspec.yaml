@@ -32,6 +32,7 @@ dependencies:
   webview_windows: ^0.3.0
   translator: ^1.0.3+1
   html: ^0.15.0
+  centrifuge: ^0.15.0
 
 dev_dependencies:
   flutter_test:

@@ -27,6 +27,7 @@ import 'package:webview_windows/webview_windows.dart';
 import 'package:translator/translator.dart';
 import 'style_screen.dart';
 import 'services/trula_donation_listener.dart';
+import 'services/donatepay_donation_listener.dart';
 
 class LocalizationProvider with ChangeNotifier {
   Map<String, String> _localizedStrings = {};
@@ -248,6 +249,9 @@ class _MainScreenState extends State<MainScreen> {
   String _newWidgetUrl = '';
   TrulaDonationListener? _trulaListener;
   String _trulaToken = '';
+  DonatePayDonationListener? _donatePayListener;
+  String _donatePayToken = '';
+  String _donatePayUserId = '';
 
   final String changelog = '''
   ★ Звуковые оповещения
@@ -269,10 +273,60 @@ class _MainScreenState extends State<MainScreen> {
       _startWebSocketServer();
       _getLocalIpAddress();
       _translateChangelog();
+
       final prefs = await SharedPreferences.getInstance();
       _trulaToken = prefs.getString('trula_token') ?? '';
+      _donatePayToken = prefs.getString('donatepay_token') ?? '';
+      _donatePayUserId = prefs.getString('donatepay_user_id') ?? '';
       _initTrulaListener();
+      _initDonatePayListener();
     });
+  }
+
+  void _initDonatePayListener() {
+    if (_donatePayToken.isEmpty || _donatePayUserId.isEmpty) {
+      LogManager.log(Level.INFO, 'DonatePay: токен или user_id отсутствуют');
+      return;
+    }
+    _donatePayListener = DonatePayDonationListener(
+      token: _donatePayToken,
+      onDonation: (username, amount) {
+        LogManager.log(
+            Level.INFO, 'DonatePay: Донат от $username на $amount ₽');
+
+        double amountMain = amount.toDouble();
+        int minutesAdded = ((amountMain * _minutesPer100Rubles) / 100).round();
+
+        setState(() {
+          _timerDuration += minutesAdded * 60;
+          _recentDonations.insert(0, DonationRecord(username, minutesAdded));
+          if (_recentDonations.length > 10) _recentDonations.removeLast();
+
+          _topDonators.update(username, (value) => value + minutesAdded,
+              ifAbsent: () => minutesAdded);
+          _topDonators = Map.fromEntries(_topDonators.entries.toList()
+            ..sort((a, b) => b.value.compareTo(a.value)));
+        });
+
+        _broadcastWebSocketMessage(json.encode({
+          'action': 'update_timer',
+          'duration': _timerDuration,
+        }));
+
+        _saveStatistics();
+        _playSound();
+
+        _broadcastWebSocketMessage(json.encode({
+          'action': 'update_donations',
+          'recentDonations': _recentDonations
+              .map((d) =>
+                  {'username': d.username, 'minutesAdded': d.minutesAdded})
+              .toList(),
+          'topDonators': _topDonators
+        }));
+      },
+    );
+    _donatePayListener!.startListening();
   }
 
   void _translateChangelog() async {
@@ -1022,6 +1076,10 @@ class _MainScreenState extends State<MainScreen> {
     TextEditingController trulaTokenController =
         TextEditingController(text: _trulaToken);
     String newWidgetUrl = '';
+    TextEditingController donatePayTokenController =
+        TextEditingController(text: _donatePayToken);
+    TextEditingController donatePayUserIdController =
+        TextEditingController(text: _donatePayUserId);
 
     showDialog(
       context: context,
@@ -1030,7 +1088,8 @@ class _MainScreenState extends State<MainScreen> {
           builder: (BuildContext context, StateSetter setState) {
             return AlertDialog(
               title: Text(
-                  context.read<LocalizationProvider>().translate('settings')),
+                context.read<LocalizationProvider>().translate('settings'),
+              ),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1073,13 +1132,8 @@ class _MainScreenState extends State<MainScreen> {
                       },
                       obscureText: true,
                     ),
-                    const Divider(
-                      color: Colors.grey,
-                      thickness: 2,
-                      indent: 5,
-                      endIndent: 5,
-                    ),
-                    // --- Новое поле Trula Token ---
+                    const Divider(color: Colors.grey, thickness: 2),
+                    // Trula Token
                     TextField(
                       controller: trulaTokenController,
                       decoration: InputDecoration(
@@ -1088,16 +1142,33 @@ class _MainScreenState extends State<MainScreen> {
                             .translate('trula_token'),
                       ),
                     ),
-                    const Divider(
-                      color: Colors.grey,
-                      thickness: 2,
-                      indent: 5,
-                      endIndent: 5,
+                    const SizedBox(height: 8),
+                    // DonatePay Token
+                    TextField(
+                      controller: donatePayTokenController,
+                      decoration: InputDecoration(
+                        labelText: context
+                            .read<LocalizationProvider>()
+                            .translate('donatepay_token'),
+                      ),
                     ),
+                    const SizedBox(height: 8),
+                    // DonatePay User ID
+                    TextField(
+                      controller: donatePayUserIdController,
+                      decoration: InputDecoration(
+                        labelText: context
+                            .read<LocalizationProvider>()
+                            .translate('donatepay_user_id'),
+                      ),
+                    ),
+                    const Divider(color: Colors.grey, thickness: 2),
                     SwitchListTile(
-                      title: Text(context
-                          .read<LocalizationProvider>()
-                          .translate('sound_notification')),
+                      title: Text(
+                        context
+                            .read<LocalizationProvider>()
+                            .translate('sound_notification'),
+                      ),
                       value: _isSoundEnabled,
                       onChanged: (bool value) {
                         setState(() {
@@ -1107,9 +1178,11 @@ class _MainScreenState extends State<MainScreen> {
                       },
                     ),
                     SwitchListTile(
-                      title: Text(context
-                          .read<LocalizationProvider>()
-                          .translate('random_sound')),
+                      title: Text(
+                        context
+                            .read<LocalizationProvider>()
+                            .translate('random_sound'),
+                      ),
                       value: _isRandomSoundEnabled,
                       onChanged: (bool value) {
                         setState(() {
@@ -1121,9 +1194,11 @@ class _MainScreenState extends State<MainScreen> {
                     ),
                     ElevatedButton(
                       onPressed: _refreshSoundFolder,
-                      child: Text(context
-                          .read<LocalizationProvider>()
-                          .translate('refresh_sounds')),
+                      child: Text(
+                        context
+                            .read<LocalizationProvider>()
+                            .translate('refresh_sounds'),
+                      ),
                     ),
                   ],
                 ),
@@ -1146,7 +1221,7 @@ class _MainScreenState extends State<MainScreen> {
                         'minutes_per_100_rubles', _minutesPer100Rubles);
                     LogManager.log(Level.INFO, 'newWidgetUrl: $newWidgetUrl');
 
-                    // --- Сохраняем Trula Token ---
+                    // Trula
                     String trulaToken = trulaTokenController.text.trim();
                     if (trulaToken.isNotEmpty) {
                       await prefs.setString('trula_token', trulaToken);
@@ -1155,7 +1230,21 @@ class _MainScreenState extends State<MainScreen> {
                       });
                     }
 
-                    // --- DonationAlerts ---
+                    // DonatePay
+                    String donateToken = donatePayTokenController.text.trim();
+                    String donateUserId = donatePayUserIdController.text.trim();
+                    if (donateToken.isNotEmpty && donateUserId.isNotEmpty) {
+                      await prefs.setString('donatepay_token', donateToken);
+                      await prefs.setString('donatepay_user_id', donateUserId);
+                      setState(() {
+                        _donatePayToken = donateToken;
+                        _donatePayUserId = donateUserId;
+                      });
+                      _donatePayListener?.dispose();
+                      _initDonatePayListener();
+                    }
+
+                    // DonationAlerts
                     if (newWidgetUrl.isNotEmpty) {
                       await prefs.setString('WidgetUrl', newWidgetUrl);
                       Uri uri = Uri.parse(newWidgetUrl);
@@ -1178,7 +1267,9 @@ class _MainScreenState extends State<MainScreen> {
                     }
 
                     _saveSettings();
-                    Navigator.of(context).pop();
+                    if (mounted) {
+                      Navigator.of(context).pop();
+                    }
                   },
                 ),
               ],
@@ -2128,6 +2219,7 @@ class _MainScreenState extends State<MainScreen> {
     _saveTimerDuration();
     super.dispose();
     _trulaListener?.dispose();
+    _donatePayListener?.dispose();
   }
 }
 
