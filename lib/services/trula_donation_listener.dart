@@ -68,11 +68,13 @@ class TrulaDonationListener {
         return null;
       }
 
-      final regex = RegExp(r'(\d+)\s+руб\s+от\s+(.+)', caseSensitive: false);
+      final regex =
+          RegExp(r'(\d+(?:\.\d+)?)\s+руб\s+от\s+(.+)', caseSensitive: false);
       final match = regex.firstMatch(firstLine);
 
       if (match != null && match.groupCount >= 2) {
-        final amount = int.tryParse(match.group(1)!) ?? 0;
+        final amountStr = match.group(1)!;
+        final amount = int.tryParse(amountStr.split('.').first) ?? 0;
         final usernameOriginal = match.group(2)!.trim();
         final username = '$usernameOriginal (trula)';
 
