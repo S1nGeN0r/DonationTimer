@@ -20,8 +20,6 @@ class TrulaDonationListener {
   String lastFirstLine = '';
   Timer? _timer;
 
-  final Map<String, DateTime> _recentDonations = {}; // Защита от дублей
-
   TrulaDonationListener({
     required this.token,
     required this.onDonation,
@@ -63,8 +61,8 @@ class TrulaDonationListener {
       final firstLine = text.split('\n').first.trim();
       debugPrint('🔔 Trula firstLine: "$firstLine"');
 
-      if (firstLine.isEmpty || firstLine == lastFirstLine) {
-        debugPrint('ℹ️ Повторный или пустой донат');
+      if (firstLine.isEmpty) {
+        debugPrint('ℹ️ Пустой донат');
         return null;
       }
 
@@ -77,22 +75,6 @@ class TrulaDonationListener {
         final amount = int.tryParse(amountStr.split('.').first) ?? 0;
         final usernameOriginal = match.group(2)!.trim();
         final username = '$usernameOriginal (trula)';
-
-        final key = '$username|$amount';
-        final now = DateTime.now();
-
-        if (_recentDonations.containsKey(key)) {
-          final lastTime = _recentDonations[key]!;
-          final difference = now.difference(lastTime).inSeconds;
-          if (difference < 5) {
-            debugPrint(
-                '⏱️ Донат повторяется менее чем через 5 секунд ($difference сек). Пропускаем.');
-            return null;
-          }
-        }
-
-        // Обновляем время
-        _recentDonations[key] = now;
 
         debugPrint('✅ Trula: $username отправил $amount руб');
         lastFirstLine = firstLine;
