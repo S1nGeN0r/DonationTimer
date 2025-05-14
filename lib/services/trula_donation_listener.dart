@@ -17,10 +17,10 @@ class TrulaDonationListener {
   final void Function(String username, int amount) onDonation;
 
   final _controller = WebviewController();
-  String lastFirstLine = '';
   Timer? _timer;
 
-  final Map<String, DateTime> _recentDonations = {}; // Защита от дублей
+  String lastFirstLine = '';
+  final Map<String, DateTime> _recentDonations = {};
 
   TrulaDonationListener({
     required this.token,
@@ -31,16 +31,13 @@ class TrulaDonationListener {
   Future<void> _initWebView() async {
     await _controller.initialize();
     _controller.setBackgroundColor(const Color(0x00ffffff));
-
     await _controller
         .loadUrl('https://trula-music.ru/obs/notification/?token=$token');
-
     debugPrint('🌐 WebView загружен Trula-виджет');
-
     await Future.delayed(const Duration(seconds: 3));
   }
 
-  /// Получение доната из JS через WebView
+  /// Получение доната из JS через WebView с расширенным логированием
   Future<TrulaDonation?> fetchLatestDonation() async {
     try {
       const script = '''
@@ -58,13 +55,19 @@ class TrulaDonationListener {
       }
 
       final text = result.trim();
-      debugPrint('🔍 Trula JS innerText: "$text"');
+      debugPrint('🔍 Trula JS innerText:\n$text');
 
       final firstLine = text.split('\n').first.trim();
       debugPrint('🔔 Trula firstLine: "$firstLine"');
+      debugPrint('🧠 Последний учтённый firstLine: "$lastFirstLine"');
 
-      if (firstLine.isEmpty || firstLine == lastFirstLine) {
-        debugPrint('ℹ️ Повторный или пустой донат');
+      if (firstLine.isEmpty) {
+        debugPrint('⚠️ Пропускаем: firstLine пустой');
+        return null;
+      }
+
+      if (firstLine == lastFirstLine) {
+        debugPrint('⚠️ Пропускаем: такой же firstLine как в прошлый раз');
         return null;
       }
 
@@ -81,28 +84,66 @@ class TrulaDonationListener {
         final key = '$username|$amount';
         final now = DateTime.now();
 
+        // Очистка старых
+        _recentDonations
+            .removeWhere((_, dt) => now.difference(dt).inMinutes > 2);
+
+        debugPrint('📦 Текущие донаты в памяти:');
+        _recentDonations.forEach((k, v) {
+          final ago = now.difference(v).inSeconds;
+          debugPrint('  • $k — $ago сек назад');
+        });
+
         if (_recentDonations.containsKey(key)) {
           final lastTime = _recentDonations[key]!;
-          final difference = now.difference(lastTime).inSeconds;
-          if (difference < 5) {
+          final diff = now.difference(lastTime).inSeconds;
+          if (diff < 5) {
             debugPrint(
-                '⏱️ Донат повторяется менее чем через 5 секунд ($difference сек). Пропускаем.');
+                '⏱️ Донат "$key" повторяется слишком быстро: $diff сек < 5 сек. Пропускаем.');
             return null;
+          } else {
+            debugPrint(
+                '🔁 Донат "$key" пришёл через $diff сек — принимаем повтор.');
           }
+        } else {
+          debugPrint('🆕 Новый донат "$key" — принимаем.');
         }
 
-        // Обновляем время
         _recentDonations[key] = now;
+        lastFirstLine = firstLine;
 
         debugPrint('✅ Trula: $username отправил $amount руб');
-        lastFirstLine = firstLine;
+
+        // Перезагрузка и ожидание очистки
+        try {
+          await _controller.reload();
+          debugPrint('🔄 WebView успешно обновлён (reload)');
+
+          Future.delayed(const Duration(seconds: 2), () async {
+            try {
+              final check = await _controller.executeScript(script);
+              final cleared = check == null || check.trim().isEmpty;
+              if (cleared) {
+                debugPrint('🧹 Получен пустой текст. Очищаем lastFirstLine.');
+                lastFirstLine = '';
+              } else {
+                debugPrint(
+                    '⏳ Повторная проверка: .notification__text всё ещё содержит текст.');
+              }
+            } catch (e) {
+              debugPrint('⚠️ Ошибка при проверке очистки текста: $e');
+            }
+          });
+        } catch (e) {
+          debugPrint('⚠️ Ошибка при WebView.reload(): $e');
+        }
 
         return TrulaDonation(username, amount);
       } else {
-        debugPrint('⚠️ Не удалось распарсить: "$firstLine"');
+        debugPrint('❌ Не удалось распарсить строку: "$firstLine"');
       }
     } catch (e) {
-      debugPrint('❌ Ошибка при получении Trula доната через JS: $e');
+      debugPrint('🚨 Исключение в fetchLatestDonation: $e');
     }
     return null;
   }
